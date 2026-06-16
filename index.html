@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Éboli — Gestão de Antibióticos</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">✚</span>
+      <div>
+        <h1>Éboli</h1>
+        <p class="subtitle">Gestão de antibioticoterapia por paciente</p>
+      </div>
+    </div>
+    <button id="addPatientBtn" class="btn btn-primary">+ Novo paciente</button>
+  </header>
+
+  <main id="patientList" class="patient-list"></main>
+
+  <!-- Template do card de paciente -->
+  <template id="patientCardTemplate">
+    <section class="card patient-card">
+      <div class="card-header">
+        <div class="patient-id">
+          <h2 class="patient-name"></h2>
+          <span class="patient-meta"></span>
+        </div>
+        <button class="btn btn-ghost btn-remove-patient" title="Remover paciente">✕</button>
+      </div>
+
+      <!-- Setor antibiótico -->
+      <div class="sector sector-antibiotic">
+        <div class="sector-head">
+          <h3>🧫 Setor Antibiótico</h3>
+          <button class="btn btn-small btn-add-atb">+ Antibiótico</button>
+        </div>
+
+        <!-- Antibióticos em uso -->
+        <div class="atb-active-wrap">
+          <h4 class="block-title">Em uso</h4>
+          <div class="atb-active-list"></div>
+          <p class="empty-msg active-empty">Nenhum antibiótico em uso.</p>
+        </div>
+
+        <!-- Histórico de antibióticos -->
+        <div class="atb-history-wrap">
+          <h4 class="block-title">📋 Histórico de antibióticos utilizados</h4>
+          <div class="table-scroll">
+            <table class="atb-history-table">
+              <thead>
+                <tr>
+                  <th>Data da prescrição</th>
+                  <th>Antibiótico</th>
+                  <th>Sítio de infecção</th>
+                  <th>SCIH ciente</th>
+                  <th>Tempo de uso</th>
+                </tr>
+              </thead>
+              <tbody class="atb-history-body"></tbody>
+            </table>
+          </div>
+          <p class="empty-msg history-empty">Nenhum antibiótico finalizado ainda.</p>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <!-- Modal genérico -->
+  <div id="modalBackdrop" class="modal-backdrop hidden">
+    <div class="modal">
+      <h3 id="modalTitle"></h3>
+      <form id="modalForm" class="modal-form"></form>
+      <div class="modal-actions">
+        <button type="button" id="modalCancel" class="btn btn-ghost">Cancelar</button>
+        <button type="submit" form="modalForm" id="modalSave" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
