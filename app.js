@@ -4,7 +4,15 @@
  * Modelo de dados:
  *   patient = {
  *     id, nome, leito, registro,
- *     antibioticos: [ atb ]
+ *     antibioticos: [ atb ],
+ *     katz,                // avaliação Katz (ou null) — ver ESCALAS
+ *     nead                 // avaliação NEAD (ou null) — ver ESCALAS
+ *   }
+ *
+ *   katz / nead = {
+ *     data,                // ISO yyyy-mm-dd da avaliação
+ *     itens: { chave: pontuacao, ... },
+ *     total                // soma das pontuações
  *   }
  *   atb = {
  *     id,
@@ -117,6 +125,17 @@ function renderPatient(pt) {
     .sort((a, b) => (b.dataPrescricao || "").localeCompare(a.dataPrescricao || ""))
     .forEach((a) => body.appendChild(renderHistoryRow(a)));
 
+  /* Escalas de avaliação (NEAD / Katz) */
+  const katzBtn = card.querySelector(".btn-scale-katz");
+  katzBtn.textContent = pt.katz ? "Reavaliar" : "Avaliar";
+  katzBtn.addEventListener("click", () => openKatzModal(pt.id));
+  card.querySelector(".katz-result").innerHTML = renderScaleResult("katz", pt.katz);
+
+  const neadBtn = card.querySelector(".btn-scale-nead");
+  neadBtn.textContent = pt.nead ? "Reavaliar" : "Avaliar";
+  neadBtn.addEventListener("click", () => openNeadModal(pt.id));
+  card.querySelector(".nead-result").innerHTML = renderScaleResult("nead", pt.nead);
+
   return node;
 }
 
@@ -171,6 +190,174 @@ function escapeHtml(str) {
   }[c]));
 }
 
+/* ----------------------------- Escalas ---------------------------- */
+/* Cada item tem opções [pontuação, rótulo]. A pontuação final é a soma
+ * das opções escolhidas e a classificação é calculada automaticamente. */
+
+// Escala de Katz — independência nas atividades de vida diária (0–6).
+const KATZ_OPCOES = [
+  [1, "Independente"],
+  [0, "Dependente"],
+];
+const KATZ_ITENS = [
+  { key: "banho", label: "Banhar-se", opts: KATZ_OPCOES },
+  { key: "vestir", label: "Vestir-se", opts: KATZ_OPCOES },
+  { key: "banheiro", label: "Ir ao banheiro", opts: KATZ_OPCOES },
+  { key: "transferencia", label: "Transferência", opts: KATZ_OPCOES },
+  { key: "continencia", label: "Continência", opts: KATZ_OPCOES },
+  { key: "alimentacao", label: "Alimentação", opts: KATZ_OPCOES },
+];
+
+// Escala NEAD — Grupo 3: critérios de apoio para planejamento de atenção domiciliar.
+const NEAD_ITENS = [
+  { key: "nutricional", label: "Estado nutricional", opts: [
+    [0, "Eutrófico"], [1, "Sobrepeso / Emagrecido"], [2, "Obeso / Desnutrido"] ] },
+  { key: "enteral", label: "Alimentação ou medicações por via enteral", opts: [
+    [0, "Sem auxílio"], [1, "Assistida"], [2, "Gastrostomia / Jejunostomia"], [3, "Por SNG / SNE"] ] },
+  { key: "katz", label: "Katz (se pediatria, pontuar 2)", opts: [
+    [0, "Independente"], [1, "Dependente parcial"], [2, "Dependente total"] ] },
+  { key: "internacoes", label: "Internações no último ano", opts: [
+    [0, "0 – 1 internação"], [1, "2 – 3 internações"], [2, "> 3 internações"] ] },
+  { key: "aspiracoes", label: "Aspirações de vias aéreas superiores", opts: [
+    [0, "Ausente"], [1, "Até 5 vezes ao dia"], [2, "Mais de 5 vezes ao dia"] ] },
+  { key: "lesoes", label: "Lesões", opts: [
+    [0, "Nenhuma ou lesão única com curativo simples"],
+    [1, "Múltiplas lesões com curativos simples ou lesão única com curativo complexo"],
+    [2, "Múltiplas lesões com curativos complexos"] ] },
+  { key: "medicacoes", label: "Medicações", opts: [
+    [0, "Via enteral"], [1, "Intramuscular ou subcutânea"], [2, "Intravenosa até 4x/dia / Hipodermóclise"] ] },
+  { key: "exercicios", label: "Exercícios ventilatórios", opts: [
+    [0, "Ausente"], [1, "Intermitente"] ] },
+  { key: "oxigenio", label: "Uso de oxigenioterapia", opts: [
+    [0, "Ausente"], [1, "Intermitente"], [2, "Contínuo"] ] },
+  { key: "consciencia", label: "Nível de consciência", opts: [
+    [0, "Alerta"], [1, "Confuso / Desorientado"], [2, "Comatoso"] ] },
+];
+
+function katzClass(total) {
+  if (total >= 5) return { label: "Independente", cls: "ok" };
+  if (total >= 3) return { label: "Dependência parcial", cls: "warn" };
+  return { label: "Dependente total", cls: "no" };
+}
+
+function neadClass(total) {
+  if (total <= 5) return { label: "Procedimentos pontuais exclusivos ou outros programas", cls: "ok" };
+  if (total <= 11) return { label: "Atendimento Domiciliar Multiprofissional", cls: "warn" };
+  if (total <= 17) return { label: "Internação Domiciliar 12h", cls: "no" };
+  return { label: "Internação Domiciliar 24h", cls: "no" };
+}
+
+// Converte a avaliação Katz na pontuação correspondente do item Katz do NEAD.
+function katzParaNead(katz) {
+  if (!katz) return null;
+  if (katz.total >= 5) return 0;
+  if (katz.total >= 3) return 1;
+  return 2;
+}
+
+const SCALE_META = {
+  katz: { itens: KATZ_ITENS, max: 6, unidade: "/ 6", classFn: katzClass, titulo: "Escala de Katz" },
+  nead: { itens: NEAD_ITENS, max: 25, unidade: "pts", classFn: neadClass, titulo: "Escala NEAD" },
+};
+
+function renderScaleResult(type, data) {
+  if (!data) return '<span class="empty-msg">Ainda não avaliado.</span>';
+  const meta = SCALE_META[type];
+  const c = meta.classFn(data.total);
+  return `
+    <div class="scale-result">
+      <span class="scale-score">${data.total} <small>${meta.unidade}</small></span>
+      <span class="tag tag-${c.cls}">${escapeHtml(c.label)}</span>
+      <span class="scale-date">Avaliado em ${formatDate(data.data)}</span>
+    </div>`;
+}
+
+// Monta o formulário de uma escala e conecta o cálculo automático ao vivo.
+function openScaleModal(type, current, onSave) {
+  const meta = SCALE_META[type];
+  const hoje = todayISO();
+  const itensAtuais = current ? current.itens : {};
+
+  const dateField = `
+    <div class="field">
+      <label for="f-scale-data">Data da avaliação</label>
+      <input id="f-scale-data" name="__data" type="date" value="${current ? current.data : hoje}" />
+    </div>`;
+
+  const campos = meta.itens.map((it) => {
+    const atual = itensAtuais[it.key];
+    const opts = it.opts.map(([v, l]) =>
+      `<option value="${v}" ${atual != null && Number(atual) === v ? "selected" : ""}>${escapeHtml(l)} (${v} pt${v === 1 ? "" : "s"})</option>`
+    ).join("");
+    return `
+      <div class="field">
+        <label>${escapeHtml(it.label)}</label>
+        <select name="${it.key}">${opts}</select>
+      </div>`;
+  }).join("");
+
+  const resultBox = `<div class="scale-live"><div class="scale-live-box"></div></div>`;
+
+  openModal(
+    meta.titulo,
+    dateField + campos + resultBox,
+    (data) => {
+      const itens = {};
+      let total = 0;
+      meta.itens.forEach((it) => {
+        const v = Number(data[it.key] || 0);
+        itens[it.key] = v;
+        total += v;
+      });
+      onSave({ data: data.__data || hoje, itens, total });
+    },
+    (form) => {
+      const box = form.querySelector(".scale-live-box");
+      const atualizar = () => {
+        let total = 0;
+        meta.itens.forEach((it) => { total += Number(form.elements[it.key].value || 0); });
+        const c = meta.classFn(total);
+        box.innerHTML = `
+          <span class="scale-live-total">Pontuação: <strong>${total}</strong> ${meta.unidade}</span>
+          <span class="tag tag-${c.cls}">${escapeHtml(c.label)}</span>`;
+      };
+      form.addEventListener("change", atualizar);
+      atualizar();
+    }
+  );
+}
+
+function openKatzModal(patientId) {
+  const pt = findPatient(patientId);
+  if (!pt) return;
+  openScaleModal("katz", pt.katz, (resultado) => {
+    pt.katz = resultado;
+    // Reflete automaticamente o item Katz na avaliação NEAD já existente.
+    if (pt.nead) {
+      pt.nead.itens.katz = katzParaNead(resultado);
+      pt.nead.total = Object.values(pt.nead.itens).reduce((s, v) => s + Number(v || 0), 0);
+    }
+    save();
+    render();
+  });
+}
+
+function openNeadModal(patientId) {
+  const pt = findPatient(patientId);
+  if (!pt) return;
+  // Se ainda não houver avaliação NEAD, aproveita o resultado da Katz para
+  // pré-preencher o item correspondente (resultado automático).
+  let atual = pt.nead;
+  if (!atual && pt.katz) {
+    atual = { data: todayISO(), itens: { katz: katzParaNead(pt.katz) }, total: 0 };
+  }
+  openScaleModal("nead", atual, (resultado) => {
+    pt.nead = resultado;
+    save();
+    render();
+  });
+}
+
 /* ----------------------------- Ações ------------------------------ */
 function findPatient(id) {
   return patients.find((p) => p.id === id);
@@ -215,12 +402,15 @@ const backdrop = document.getElementById("modalBackdrop");
 const modalTitle = document.getElementById("modalTitle");
 const modalForm = document.getElementById("modalForm");
 
-function openModal(title, fieldsHtml, onSubmit) {
+function openModal(title, fieldsHtml, onSubmit, onRender) {
   modalTitle.textContent = title;
   modalForm.innerHTML = fieldsHtml;
   backdrop.classList.remove("hidden");
   const firstInput = modalForm.querySelector("input, select");
   if (firstInput) firstInput.focus();
+
+  // Permite que o chamador conecte cálculos ao vivo (resultado automático).
+  if (typeof onRender === "function") onRender(modalForm);
 
   function close() {
     backdrop.classList.add("hidden");
@@ -260,6 +450,8 @@ function openPatientModal() {
         leito: data.leito.trim(),
         registro: data.registro.trim(),
         antibioticos: [],
+        katz: null,
+        nead: null,
       });
       save();
       render();
